@@ -1,0 +1,143 @@
+# Home Assistant 벨(Doorbell) 이벤트 센서 설정
+# configuration.yaml에 추가하세요
+
+mqtt:
+  # B4층 벨 이벤트
+  - platform: event
+    name: "B4층 벨"
+    unique_id: "doorbell_event_b4"
+    state_topic: "hasstcp/parking/B4"
+    event_types:
+      - "doorbell"
+    device_class: "doorbell"
+    icon: mdi:doorbell
+    
+  # B3층 벨 이벤트
+  - platform: event
+    name: "B3층 벨"
+    unique_id: "doorbell_event_b3"
+    state_topic: "hasstcp/parking/B3"
+    event_types:
+      - "doorbell"
+    device_class: "doorbell"
+    icon: mdi:doorbell
+    
+  # 1층 벨 이벤트
+  - platform: event
+    name: "1층 벨"
+    unique_id: "doorbell_event_1f"
+    state_topic: "hasstcp/parking/1F"
+    event_types:
+      - "doorbell"
+    device_class: "doorbell"
+    icon: mdi:doorbell
+
+# 자동화 예시
+automation:
+  # B4층 벨 알림
+  - alias: "B4층 벨 알림"
+    mode: single
+    trigger:
+      - platform: event
+        event_type: b4층_벨_event
+        event_data:
+          event_type: "doorbell"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "🔔 B4층 벨"
+          message: "B4층에서 벨이 울렸습니다."
+      # TTS 예시 (선택사항)
+      - service: tts.google_translate_say
+        data:
+          entity_id: media_player.living_room
+          message: "B4층에 방문객이 있습니다"
+          
+  # B3층 벨 알림
+  - alias: "B3층 벨 알림"
+    mode: single
+    trigger:
+      - platform: event
+        event_type: b3층_벨_event
+        event_data:
+          event_type: "doorbell"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "🔔 B3층 벨"
+          message: "B3층에서 벨이 울렸습니다."
+          
+  # 1층 벨 알림
+  - alias: "1층 벨 알림"
+    mode: single
+    trigger:
+      - platform: event
+        event_type: 1층_벨_event
+        event_data:
+          event_type: "doorbell"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "🔔 1층 벨"
+          message: "1층에서 벨이 울렸습니다."
+
+# 벨 카운터 (선택사항)
+counter:
+  b4_doorbell_count:
+    name: "B4층 벨 횟수"
+    icon: mdi:counter
+    
+  b3_doorbell_count:
+    name: "B3층 벨 횟수"
+    icon: mdi:counter
+    
+  f1_doorbell_count:
+    name: "1층 벨 횟수"
+    icon: mdi:counter
+
+# 벨 카운트 자동화
+automation:
+  - alias: "B4층 벨 카운트"
+    trigger:
+      - platform: event
+        event_type: b4층_벨_event
+        event_data:
+          event_type: "doorbell"
+    action:
+      - service: counter.increment
+        target:
+          entity_id: counter.b4_doorbell_count
+          
+  - alias: "B3층 벨 카운트"
+    trigger:
+      - platform: event
+        event_type: b3층_벨_event
+        event_data:
+          event_type: "doorbell"
+    action:
+      - service: counter.increment
+        target:
+          entity_id: counter.b3_doorbell_count
+          
+  - alias: "1층 벨 카운트"
+    trigger:
+      - platform: event
+        event_type: 1층_벨_event
+        event_data:
+          event_type: "doorbell"
+    action:
+      - service: counter.increment
+        target:
+          entity_id: counter.f1_doorbell_count
+
+# MQTT 토픽 구조:
+# - hasstcp/parking/B4    : B4층 벨 (JSON: {"event_type": "doorbell", "car_no": "B4", ...})
+# - hasstcp/parking/B3    : B3층 벨 (JSON: {"event_type": "doorbell", "car_no": "B3", ...})
+# - hasstcp/parking/1F    : 1층 벨 (JSON: {"event_type": "doorbell", "car_no": "1F", ...})
+#
+# 동작 방식:
+# 1. B3층 벨 울림 → hasstcp/parking/B3에 이벤트 JSON 발행
+# 2. event.b3층_벨이 이벤트 트리거
+# 3. 자동화에서 알림/TTS/카운터 실행
+# 4. 5초 이내 중복 이벤트는 자동 무시
+

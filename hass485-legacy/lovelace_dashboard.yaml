@@ -1,0 +1,234 @@
+# Lovelace 대시보드 설정
+# 이 파일을 Home Assistant의 lovelace.yaml에 포함하거나
+# 대시보드에서 직접 설정하세요
+
+title: "RS485 홈 오토메이션"
+views:
+  - title: "홈 대시보드"
+    path: home
+    icon: mdi:home
+    cards:
+      # 조명 카드
+      - type: vertical-stack
+        title: "조명 제어"
+        cards:
+          - type: entities
+            entities:
+              - entity: light.living_room
+                name: "거실 조명"
+              - entity: light.kitchen
+                name: "주방 조명"
+              - entity: light.bedroom
+                name: "침실 조명"
+              - entity: light.bathroom
+                name: "욕실 조명"
+              - entity: light.entrance
+                name: "현관 조명"
+            show_header_toggle: false
+
+      # 보일러 카드
+      - type: vertical-stack
+        title: "보일러 제어"
+        cards:
+          - type: entities
+            entities:
+              - entity: climate.living_room
+                name: "거실 보일러"
+              - entity: climate.kitchen
+                name: "주방 보일러"
+              - entity: climate.bedroom
+                name: "침실 보일러"
+              - entity: climate.bathroom
+                name: "욕실 보일러"
+            show_header_toggle: false
+
+      # 온도 센서 카드
+      - type: vertical-stack
+        title: "온도 모니터링"
+        cards:
+          - type: entities
+            entities:
+              - entity: sensor.living_room_temp
+                name: "거실 온도"
+              - entity: sensor.kitchen_temp
+                name: "주방 온도"
+              - entity: sensor.bedroom_temp
+                name: "침실 온도"
+              - entity: sensor.bathroom_temp
+                name: "욕실 온도"
+            show_header_toggle: false
+
+      # 엘리베이터 및 도어벨 카드
+      - type: vertical-stack
+        title: "시스템 제어"
+        cards:
+          - type: entities
+            entities:
+              - entity: button.elevator_call
+                name: "엘리베이터 호출"
+              - entity: switch.all_off_switch
+                name: "일괄소등 스위치"
+              - entity: binary_sensor.doorbell
+                name: "도어벨 상태"
+              - entity: button.door_open
+                name: "문열기"
+            show_header_toggle: false
+
+      # 빠른 액션 버튼들
+      - type: vertical-stack
+        title: "빠른 액션"
+        cards:
+          - type: button
+            name: "모든 조명 켜기"
+            tap_action:
+              action: call-service
+              service: script.turn_on_all_lights
+            icon: mdi:lightbulb-on
+
+          - type: button
+            name: "모든 조명 끄기"
+            tap_action:
+              action: call-service
+              service: script.turn_off_all_lights
+            icon: mdi:lightbulb-off
+
+          - type: button
+            name: "모든 보일러 켜기"
+            tap_action:
+              action: call-service
+              service: script.turn_on_all_boilers
+            icon: mdi:fire
+
+          - type: button
+            name: "모든 보일러 끄기"
+            tap_action:
+              action: call-service
+              service: script.turn_off_all_boilers
+            icon: mdi:fire-off
+
+  - title: "조명 상세"
+    path: lights
+    icon: mdi:lightbulb
+    cards:
+      - type: entities
+        title: "조명 상태"
+        entities:
+          - entity: light.living_room
+            name: "거실 조명"
+          - entity: light.kitchen
+            name: "주방 조명"
+          - entity: light.bedroom
+            name: "침실 조명"
+          - entity: light.bathroom
+            name: "욕실 조명"
+          - entity: light.entrance
+            name: "현관 조명"
+        show_header_toggle: false
+
+      - type: vertical-stack
+        title: "조명 제어"
+        cards:
+          - type: button
+            name: "모든 조명 켜기"
+            tap_action:
+              action: call-service
+              service: script.turn_on_all_lights
+            icon: mdi:lightbulb-on
+
+          - type: button
+            name: "모든 조명 끄기"
+            tap_action:
+              action: call-service
+              service: script.turn_off_all_lights
+            icon: mdi:lightbulb-off
+
+  - title: "보일러 상세"
+    path: boilers
+    icon: mdi:fire
+    cards:
+      - type: entities
+        title: "보일러 상태"
+        entities:
+          - entity: climate.living_room
+            name: "거실 보일러"
+          - entity: climate.kitchen
+            name: "주방 보일러"
+          - entity: climate.bedroom
+            name: "침실 보일러"
+          - entity: climate.bathroom
+            name: "욕실 보일러"
+        show_header_toggle: false
+
+      - type: entities
+        title: "온도 센서"
+        entities:
+          - entity: sensor.living_room_temp
+            name: "거실 온도"
+          - entity: sensor.kitchen_temp
+            name: "주방 온도"
+          - entity: sensor.bedroom_temp
+            name: "침실 온도"
+          - entity: sensor.bathroom_temp
+            name: "욕실 온도"
+        show_header_toggle: false
+
+      - type: vertical-stack
+        title: "보일러 제어"
+        cards:
+          - type: button
+            name: "모든 보일러 켜기"
+            tap_action:
+              action: call-service
+              service: script.turn_on_all_boilers
+            icon: mdi:fire
+
+          - type: button
+            name: "모든 보일러 끄기"
+            tap_action:
+              action: call-service
+              service: script.turn_off_all_boilers
+            icon: mdi:fire-off
+
+  - title: "시스템 모니터링"
+    path: monitoring
+    icon: mdi:monitor-dashboard
+    cards:
+      # 온도 그래프
+      - type: history-graph
+        title: "온도 변화"
+        hours_to_show: 24
+        entities:
+          - entity: sensor.living_room_temp
+            name: "거실"
+          - entity: sensor.kitchen_temp
+            name: "주방"
+          - entity: sensor.bedroom_temp
+            name: "침실"
+          - entity: sensor.bathroom_temp
+            name: "욕실"
+
+      # 도어벨 로그
+      - type: history-graph
+        title: "도어벨 활동"
+        hours_to_show: 24
+        entities:
+          - entity: binary_sensor.doorbell
+            name: "도어벨"
+
+      # 시스템 상태
+      - type: entities
+        title: "시스템 상태"
+        entities:
+          - entity: binary_sensor.doorbell
+            name: "도어벨 상태"
+          - entity: button.elevator_call
+            name: "엘리베이터 호출"
+          - entity: switch.all_off_switch
+            name: "일괄소등 스위치"
+          - entity: button.door_open
+            name: "문열기"
+        show_header_toggle: false
+
+# 테마 설정 (선택사항)
+# theme: Backend-selected
+# darkMode: auto 

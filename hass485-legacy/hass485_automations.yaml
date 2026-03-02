@@ -1,0 +1,139 @@
+# HASS485 장치 자동화 예시
+# 이 파일을 configuration.yaml에서 include하거나 직접 추가하세요
+
+automation:
+  # 도어벨 벨 울림 시 알림
+  - id: 'hass485_doorbell_notification'
+    alias: "도어벨 벨 울림 알림"
+    description: "도어벨이 울리면 모바일로 알림 전송"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.doorbell
+        to: "on"
+    condition: []
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "🔔 도어벨"
+          message: "현관문에 누군가 왔습니다!"
+    mode: single
+
+  # 보일러 온도 모니터링
+  - id: 'hass485_boiler_temp_alert'
+    alias: "보일러 온도 경고"
+    description: "보일러 온도가 너무 높으면 알림"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.boiler_room1_current_temperature
+        above: 80
+    condition: []
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "🔥 보일러 온도 경고"
+          message: "보일러 온도가 {{ states('sensor.boiler_room1_current_temperature') }}°C로 높습니다!"
+    mode: single
+
+  # 조명 자동 끄기 (예: 23시)
+  - id: 'hass485_lights_auto_off'
+    alias: "조명 자동 끄기"
+    description: "밤 11시에 모든 조명 자동 끄기"
+    trigger:
+      - platform: time
+        at: "23:00:00"
+    condition:
+      - condition: time
+        after: "22:00:00"
+        before: "06:00:00"
+    action:
+      - service: light.turn_off
+        target:
+          entity_id:
+            - light.light1
+            - light.light2
+            - light.light3
+            - light.light4
+            - light.light5
+    mode: single
+
+  # 엘리베이터 호출 후 상태 리셋
+  - id: 'hass485_elevator_call_reset'
+    alias: "엘리베이터 호출 상태 리셋"
+    description: "엘리베이터 호출 후 30초 뒤 상태 리셋"
+    trigger:
+      - platform: state
+        entity_id: button.elevator_call
+        to: "pressed"
+    condition: []
+    action:
+      - delay:
+          seconds: 30
+      - service: button.press
+        target:
+          entity_id: button.elevator_call
+        data:
+          press: "reset"
+    mode: single
+
+  # 일괄소등 스위치 모니터링
+  - id: 'hass485_alloff_monitoring'
+    alias: "일괄소등 스위치 모니터링"
+    description: "일괄소등이 켜지면 모든 조명 끄기"
+    trigger:
+      - platform: state
+        entity_id: switch.alloff
+        to: "on"
+    condition: []
+    action:
+      - service: light.turn_off
+        target:
+          entity_id:
+            - light.light1
+            - light.light2
+            - light.light3
+            - light.light4
+            - light.light5
+      - service: switch.turn_off
+        target:
+          entity_id: switch.alloff
+    mode: single
+
+  # 보일러 자동 모드 설정 (예: 18시)
+  - id: 'hass485_boiler_auto_mode'
+    alias: "보일러 자동 모드 설정"
+    description: "저녁 6시에 보일러 자동 모드로 설정"
+    trigger:
+      - platform: time
+        at: "18:00:00"
+    condition: []
+    action:
+      - service: climate.set_hvac_mode
+        target:
+          entity_id:
+            - climate.boiler_room1
+            - climate.boiler_room2
+            - climate.boiler_room3
+            - climate.boiler_room4
+        data:
+          hvac_mode: "heat"
+    mode: single
+
+  # 보일러 야간 모드 설정 (예: 22시)
+  - id: 'hass485_boiler_night_mode'
+    alias: "보일러 야간 모드 설정"
+    description: "밤 10시에 보일러 야간 모드로 설정"
+    trigger:
+      - platform: time
+        at: "22:00:00"
+    condition: []
+    action:
+      - service: climate.set_temperature
+        target:
+          entity_id:
+            - climate.boiler_room1
+            - climate.boiler_room2
+            - climate.boiler_room3
+            - climate.boiler_room4
+        data:
+          temperature: 18
+    mode: single 

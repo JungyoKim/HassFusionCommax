@@ -1,0 +1,25 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "name": "통합 구성요소 이름",
+          "light_device": "조명 USB 장치",
+          "boiler_device": "보일러 USB 장치",
+          "door_device": "도어 USB 장치",
+          "elevator_device": "엘리베이터 USB 장치"
+        },
+        "description": "USB to RS485 장치로 Commax 통합 구성요소 설정",
+        "title": "Commax 설정"
+      }
+    },
+    "error": {
+      "cannot_connect": "연결에 실패했습니다",
+      "invalid_auth": "인증이 잘못되었습니다",
+      "unknown": "예상치 못한 오류가 발생했습니다"
+    },
+    "abort": {
+      "already_configured": "장치가 이미 구성되어 있습니다"
+    }
+  }
+} 

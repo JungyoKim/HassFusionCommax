@@ -1,0 +1,39 @@
+name: "HASS485 RS485 Controller"
+version: "1.0.0"
+slug: "hass485"
+description: "RS485 통신을 통한 조명, 엘리베이터, 도어벨, 보일러 제어"
+arch:
+  - armhf
+  - armv7
+  - aarch64
+  - amd64
+  - i386
+startup: application
+init: false
+ports:
+  1883/tcp: 1883
+map:
+  - config:rw
+  - ssl:rw
+  - addons:rw
+  - share:rw
+  - backup:rw
+  - media:rw
+devices:
+  - /dev/ttyUSB0:/dev/ttyUSB0
+  - /dev/ttyUSB1:/dev/ttyUSB1
+  - /dev/ttyUSB2:/dev/ttyUSB2
+  - /dev/ttyUSB3:/dev/ttyUSB3
+environment:
+  MQTT_BROKER: "tcp://localhost:1883"
+  MQTT_PREFIX: "homeassistant"
+options:
+  mqtt_broker:
+    default: "tcp://localhost:1883"
+    description: "MQTT 브로커 주소"
+  mqtt_prefix:
+    default: "homeassistant"
+    description: "MQTT 토픽 접두사"
+schema:
+  mqtt_broker: str
+  mqtt_prefix: str 

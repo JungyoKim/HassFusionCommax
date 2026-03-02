@@ -1,0 +1,322 @@
+# Home Assistant RS485 기기 설정 (최신 MQTT 방식)
+# 이 파일을 Home Assistant의 configuration.yaml에 포함하거나
+# packages 디렉토리에 저장하여 사용하세요
+
+# =============================================================================
+# MQTT 설정 (최신 방식)
+# =============================================================================
+mqtt:
+  # =============================================================================
+  # 조명 (Lights) - 5개 조명
+  # =============================================================================
+  - light:
+      name: "거실 조명"
+      unique_id: "light_living_room"
+      command_topic: "home/lights/1/set"
+      state_topic: "home/lights/1/state"
+      payload_on: "ON"
+      payload_off: "OFF"
+      optimistic: false
+      retain: false
+
+  - light:
+      name: "주방 조명"
+      unique_id: "light_kitchen"
+      command_topic: "home/lights/2/set"
+      state_topic: "home/lights/2/state"
+      payload_on: "ON"
+      payload_off: "OFF"
+      optimistic: false
+      retain: false
+
+  - light:
+      name: "침실 조명"
+      unique_id: "light_bedroom"
+      command_topic: "home/lights/3/set"
+      state_topic: "home/lights/3/state"
+      payload_on: "ON"
+      payload_off: "OFF"
+      optimistic: false
+      retain: false
+
+  - light:
+      name: "욕실 조명"
+      unique_id: "light_bathroom"
+      command_topic: "home/lights/4/set"
+      state_topic: "home/lights/4/state"
+      payload_on: "ON"
+      payload_off: "OFF"
+      optimistic: false
+      retain: false
+
+  - light:
+      name: "현관 조명"
+      unique_id: "light_entrance"
+      command_topic: "home/lights/5/set"
+      state_topic: "home/lights/5/state"
+      payload_on: "ON"
+      payload_off: "OFF"
+      optimistic: false
+      retain: false
+
+  # =============================================================================
+  # 보일러 (Climate) - 4개 방
+  # =============================================================================
+  - climate:
+      name: "거실 보일러"
+      unique_id: "climate_living_room"
+      modes:
+        - "off"
+        - "heat"
+      mode_state_topic: "home/boilers/1/mode"
+      mode_command_topic: "home/boilers/1/mode/set"
+      current_temperature_topic: "home/boilers/1/current_temperature"
+      temperature_state_topic: "home/boilers/1/set_temperature"
+      temperature_command_topic: "home/boilers/1/temperature/set"
+      temperature_unit: "C"
+      min_temp: 10
+      max_temp: 30
+      temp_step: 1
+      mode_state_template: "{{ value }}"
+      temperature_state_template: "{{ value }}"
+      current_temperature_template: "{{ value }}"
+
+  - climate:
+      name: "주방 보일러"
+      unique_id: "climate_kitchen"
+      modes:
+        - "off"
+        - "heat"
+      mode_state_topic: "home/boilers/2/mode"
+      mode_command_topic: "home/boilers/2/mode/set"
+      current_temperature_topic: "home/boilers/2/current_temperature"
+      temperature_state_topic: "home/boilers/2/set_temperature"
+      temperature_command_topic: "home/boilers/2/temperature/set"
+      temperature_unit: "C"
+      min_temp: 10
+      max_temp: 30
+      temp_step: 1
+      mode_state_template: "{{ value }}"
+      temperature_state_template: "{{ value }}"
+      current_temperature_template: "{{ value }}"
+
+  - climate:
+      name: "침실 보일러"
+      unique_id: "climate_bedroom"
+      modes:
+        - "off"
+        - "heat"
+      mode_state_topic: "home/boilers/3/mode"
+      mode_command_topic: "home/boilers/3/mode/set"
+      current_temperature_topic: "home/boilers/3/current_temperature"
+      temperature_state_topic: "home/boilers/3/set_temperature"
+      temperature_command_topic: "home/boilers/3/temperature/set"
+      temperature_unit: "C"
+      min_temp: 10
+      max_temp: 30
+      temp_step: 1
+      mode_state_template: "{{ value }}"
+      temperature_state_template: "{{ value }}"
+      current_temperature_template: "{{ value }}"
+
+  - climate:
+      name: "욕실 보일러"
+      unique_id: "climate_bathroom"
+      modes:
+        - "off"
+        - "heat"
+      mode_state_topic: "home/boilers/4/mode"
+      mode_command_topic: "home/boilers/4/mode/set"
+      current_temperature_topic: "home/boilers/4/current_temperature"
+      temperature_state_topic: "home/boilers/4/set_temperature"
+      temperature_command_topic: "home/boilers/4/temperature/set"
+      temperature_unit: "C"
+      min_temp: 10
+      max_temp: 30
+      temp_step: 1
+      mode_state_template: "{{ value }}"
+      temperature_state_template: "{{ value }}"
+      current_temperature_template: "{{ value }}"
+
+  # =============================================================================
+  # 엘리베이터 호출 (Button) - 일회성 액션
+  # =============================================================================
+  - button:
+      name: "엘리베이터 호출"
+      unique_id: "button_elevator_call"
+      command_topic: "home/elevator/call/set"
+      payload_press: "ON"
+      retain: false
+
+  # =============================================================================
+  # 일괄소등 스위치 (Switch) - 상태 유지
+  # =============================================================================
+  - switch:
+      name: "일괄소등 스위치"
+      unique_id: "switch_all_off"
+      command_topic: "home/alloff/set"
+      state_topic: "home/alloff/state"
+      payload_on: "ON"
+      payload_off: "OFF"
+      state_on: "ON"
+      state_off: "OFF"
+      optimistic: false
+      retain: false
+
+  # =============================================================================
+  # 도어벨 (Event)
+  # =============================================================================
+  - event:
+      name: "도어벨"
+      unique_id: "event_doorbell"
+      state_topic: "home/doorbell/event"
+      event_types:
+        - "ring"
+      device_class: "doorbell"
+      value_template: "{{ value_json.event_type }}"
+
+  # =============================================================================
+  # 문열기 (Button) - 일회성 액션
+  # =============================================================================
+  - button:
+      name: "문열기"
+      unique_id: "button_door_open"
+      command_topic: "home/doorbell/open/set"
+      payload_press: "ON"
+      retain: false
+
+  # =============================================================================
+  # 센서 (Sensors) - 온도 모니터링
+  # =============================================================================
+  - sensor:
+      name: "거실 현재온도"
+      unique_id: "sensor_living_room_temp"
+      state_topic: "home/boilers/1/current_temperature"
+      unit_of_measurement: "°C"
+      device_class: "temperature"
+
+  - sensor:
+      name: "주방 현재온도"
+      unique_id: "sensor_kitchen_temp"
+      state_topic: "home/boilers/2/current_temperature"
+      unit_of_measurement: "°C"
+      device_class: "temperature"
+
+  - sensor:
+      name: "침실 현재온도"
+      unique_id: "sensor_bedroom_temp"
+      state_topic: "home/boilers/3/current_temperature"
+      unit_of_measurement: "°C"
+      device_class: "temperature"
+
+  - sensor:
+      name: "욕실 현재온도"
+      unique_id: "sensor_bathroom_temp"
+      state_topic: "home/boilers/4/current_temperature"
+      unit_of_measurement: "°C"
+      device_class: "temperature"
+
+# =============================================================================
+# 자동화 (Automations) - 예시
+# =============================================================================
+automation:
+  # 도어벨 울림 시 알림
+  - alias: "도어벨 알림"
+    trigger:
+      platform: mqtt
+      topic: "home/doorbell/event"
+    condition:
+      - condition: template
+        value_template: "{{ trigger.payload_json.event_type == 'ring' }}"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "도어벨"
+          message: "누군가 도어벨을 눌렀습니다!"
+
+  # 일괄소등 자동화 (예: 밤 11시)
+  - alias: "밤 11시 일괄소등"
+    trigger:
+      platform: time
+      at: "23:00:00"
+    action:
+      - service: switch.turn_on
+        target:
+          entity_id: switch.all_off_switch
+
+  # 온도 모니터링 알림 (예: 30도 이상)
+  - alias: "고온 알림"
+    trigger:
+      platform: numeric_state
+      entity_id: sensor.living_room_temp
+      above: 30
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "고온 경고"
+          message: "거실 온도가 30도 이상입니다!"
+
+# =============================================================================
+# 스크립트 (Scripts) - 편의 기능
+# =============================================================================
+script:
+  # 모든 조명 끄기
+  turn_off_all_lights:
+    alias: "모든 조명 끄기"
+    sequence:
+      - service: light.turn_off
+        target:
+          entity_id:
+            - light.living_room
+            - light.kitchen
+            - light.bedroom
+            - light.bathroom
+            - light.entrance
+
+  # 모든 조명 켜기
+  turn_on_all_lights:
+    alias: "모든 조명 켜기"
+    sequence:
+      - service: light.turn_on
+        target:
+          entity_id:
+            - light.living_room
+            - light.kitchen
+            - light.bedroom
+            - light.bathroom
+            - light.entrance
+
+  # 보일러 일괄 끄기
+  turn_off_all_boilers:
+    alias: "모든 보일러 끄기"
+    sequence:
+      - service: climate.set_hvac_mode
+        target:
+          entity_id:
+            - climate.living_room
+            - climate.kitchen
+            - climate.bedroom
+            - climate.bathroom
+        data:
+          hvac_mode: "off"
+
+  # 보일러 일괄 켜기
+  turn_on_all_boilers:
+    alias: "모든 보일러 켜기"
+    sequence:
+      - service: climate.set_hvac_mode
+        target:
+          entity_id:
+            - climate.living_room
+            - climate.kitchen
+            - climate.bedroom
+            - climate.bathroom
+        data:
+          hvac_mode: "heat"
+
+# =============================================================================
+# 알림 설정
+# =============================================================================
+notify:
+  - platform: mobile_app
+    name: mobile_app 
