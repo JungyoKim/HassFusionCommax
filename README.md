@@ -56,7 +56,14 @@ HassFusionCommax는 홈어시스턴트(Home Assistant)와 코맥스(Commax) 스�
 | **벨 호출 감지 (Ring)** | 초인종 누름 감지 시 HA로 이벤트 트리거 (5초 유지) | `02 10 02 02 09 03 02 02 09 03 ... 40 03` 또는 `02 10 01 09 ... 5A 03` |
 | **공동현관 문열림** | 외부에서 방문자 확인 후 1층 출입문 개방 | `02 11 02 02 09 03 02 02 09 03 05 40 00 01 77 03` |
 
-### 5. 엘리베이터 상태 모니터 - `HTTP SOAP 통신`
+### 5. 공동현관 로비폰 문열림 - `HTTP SOAP 통신`
+지하 주차장(B4, B3) 및 1층 로비의 공동현관 방문객 확인 후 문을 열어주는 제어 프로토콜입니다. RS485가 아닌 각 층의 로비폰 IP로 직접 SOAP 요청을 쏩니다.
+
+| 기능 (Function) | 설명 (Description) | 엔드포인트 및 Payload |
+| :--- | :--- | :--- |
+| **로비 문열림** | 지정된 층의 공동현관문 개방 명령 전송 (POST) | `Endpoint`: `http://[각_층_로비폰_IP]:29752/`<br>`Payload`: `<n0:setOutOfBandDoorOpen ...><in>15</in></n0:setOutOfBandDoorOpen>` |
+
+### 6. 엘리베이터 상태 모니터 - `HTTP SOAP 통신`
 하드웨어 라인이 아닌 아파트 단지 관리 서버(CES)의 내부 API를 주기적으로 폴링(Polling)합니다. 부하 조절을 위해 엘리베이터 이동중에는 3초, 정지 중에는 10초 주기로 변경됩니다.
 
 | 항목 | 상세 규격 (Details) |
@@ -65,7 +72,7 @@ HassFusionCommax는 홈어시스턴트(Home Assistant)와 코맥스(Commax) 스�
 | **Payload (XML)** | `urn:ces#getEvStatus` SOAP 형식의 바디 전송 (POST) |
 | **Parsing 구조** | 반환 XML 중 `<item>` 트리 파싱:<br>- `carFloor`: 현재 위치(층)<br>- `carDirection`: 이동 방향 (`1`:상행, `2`:하행, `0`:정지)<br>- `isBasement`: 지하 여부 |
 
-### 6. 에너지 사용 정보 (전기, 가스, 수돗물) - `HTTP SOAP 통신`
+### 7. 에너지 사용 정보 (전기, 가스, 수돗물) - `HTTP SOAP 통신`
 월패드 IP를 통해 단지 서버에 10분마다 쿼리를 날려 12가지 사용량 데이터를 추출합니다. 데몬 내부 구조(RWMutex)를 통해 데이터를 캐싱하여 HA 재시작 시 즉각 응답합니다.
 
 | 항목 | 상세 규격 (Details) |
@@ -75,7 +82,7 @@ HassFusionCommax는 홈어시스턴트(Home Assistant)와 코맥스(Commax) 스�
 | **수집 프로시저** | - `proc_get_energy_annual_select` (이번 달 및 올해 연간 유틸리티 사용량 추출용)<br>- `proc_get_daily_energy` (금일 사용량)<br>- `proc_get_hour_energy` (현재 시간 사용량) |
 | **Parsing 로직** | 아파트 서버가 정규 구조를 어기는 경우를 대비해 정규식(`(?s)<(?:\w+:)?result[^>]*>(.*?)</(?:\w+:)?result>`) 기반으로 본문만 적출 후 `날짜#측정값$` 포맷 스플릿 파싱 |
 
-### 7. 주차 관리 알림 - `TCP 패킷 스니핑`
+### 8. 주차 관리 알림 - `TCP 패킷 스니핑`
 차량 입차/출차 이벤트는 폴링(Polling)이 불가하며, 외부 시스템에서 월패드로 비정기적으로 푸시(Push)하는 데이터입니다. 따라서 라우터 캡처 환경을 구축해 `tcpassembly` 기술로 실시간 방화벽 패킷 스니핑을 수행합니다.
 
 | 항목 | 상세 규격 (Details) |
