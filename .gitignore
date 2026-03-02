@@ -1,0 +1,18 @@
+# Ignore unwanted directories
+hass485/
+hass485-legacy/
+hasstcp/
+
+# Go binaries
+hassfusion/hassfusion.exe
+hassfusion/hassfusion_linux_amd64
+hassfusion/fushion_fixed
+hassfusion/hassfusion
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDEs
+.vscode/
+.idea/
