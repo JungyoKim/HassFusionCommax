@@ -1,0 +1,34 @@
+websocket:
+  host: "0.0.0.0"
+  port: 8080
+
+rs485:
+  lights: "/dev/ttyUSB0"
+  boilers: "/dev/ttyUSB1"
+  doorbell: "/dev/ttyUSB2"
+  alloff: "/dev/ttyUSB3"
+
+tcp:
+  use_ssh: true
+  ssh:
+    host: "192.168.10.22:22"
+    user: "root"
+    password: "1!@Honami"
+    key: ""
+    command: "tcpdump -nn -i eth0.2 -U -s 0 -w - not port 22"
+  
+  local_cidrs:
+    - "192.168.10.0/24"
+    - "10.0.0.0/8"
+
+doors:
+  floor_b4_ip: "10.9.1.37:29752"
+  floor_b3_ip: "10.9.1.27:29752"
+  floor_1f_ip: "10.9.1.17:29752"
+
+wallpad:
+  ip: "10.0.0.2"
+  mac: "000b4243e742"
+  device_id: "H6D"
+  dong: "109"
+  ho: "1201"
