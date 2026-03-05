@@ -235,13 +235,13 @@ func detectParkService(httpData []byte) bool {
 
 		eventType := "unknown"
 		switch data.Type {
-		case "1":
+		case "1", "parkIn":
 			eventType = "parkIn"
-		case "2":
+		case "2", "parkOut":
 			eventType = "parkOut"
 		}
 
-		if eventType == "parkIn" {
+		if eventType == "parkIn" || eventType == "parkOut" {
 			// Deduplicate events across streams (안전한 Lock 처리)
 			parkEventManager.Lock()
 			if lastEvent, ok := parkEventManager.events[data.CarNo]; ok {
