@@ -79,8 +79,10 @@ class HassFusionHub:
 
                 await self._listen()
 
-            except aiohttp.ClientError as err:
-                _LOGGER.error("Failed to connect to HassFusion: %s", err)
+            except (aiohttp.ClientError, OSError) as err:
+                _LOGGER.warning("Failed to connect to HassFusion: %s. Will retry...", err)
+            except asyncio.CancelledError:
+                break
             except Exception as err:
                 _LOGGER.error("Unexpected error in HassFusion connection loop: %s", err)
             finally:
