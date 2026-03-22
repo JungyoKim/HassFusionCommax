@@ -34,15 +34,35 @@ class HassFusionSwitch(SwitchEntity):
         """Initialize."""
         self._hub = hub
         self._device_id = device_id
-        
+
         self._attr_name = name
         self._attr_unique_id = f"hassfusion_switch_{device_id}"
         self._attr_icon = icon
         self._attr_is_on = False
+        self._unsub_event: Any = None
+        self._unsub_avail: Any = None
+
+    @property
+    def available(self) -> bool:
+        """Return True if the hub is connected."""
+        return self._hub.connected
 
     async def async_added_to_hass(self) -> None:
         """Register callbacks."""
-        self._hub.subscribe(self._device_id, self._handle_event)
+        self._unsub_event = self._hub.subscribe(self._device_id, self._handle_event)
+        self._unsub_avail = self._hub.register_availability_callback(self._handle_availability)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister callbacks."""
+        if self._unsub_event:
+            self._unsub_event()
+        if self._unsub_avail:
+            self._unsub_avail()
+
+    @callback
+    def _handle_availability(self, available: bool) -> None:
+        """Handle connection state changes."""
+        self.async_write_ha_state()
 
     @callback
     def _handle_event(self, event: dict) -> None:
@@ -54,11 +74,7 @@ class HassFusionSwitch(SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         await self._hub.send_command("switch", self._device_id, "turn_on")
-        self._attr_is_on = True
-        self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         await self._hub.send_command("switch", self._device_id, "turn_off")
-        self._attr_is_on = False
-        self.async_write_ha_state()

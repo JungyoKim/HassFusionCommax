@@ -9,6 +9,7 @@ import (
 
 	"github.com/tarm/serial"
 
+	"hassfusion/config"
 	"hassfusion/ws"
 )
 
@@ -32,6 +33,7 @@ const (
 )
 
 type BoilerController struct {
+	portSpec string // 원본 포트 설정값 (e.g., "usb:1-2.1.2")
 	port     *serial.Port
 	wsServer *ws.Server
 
@@ -74,15 +76,16 @@ func byteToBcd(b byte) byte {
 	return ((b / 10) << 4) | (b % 10)
 }
 
-func NewBoilerController(portName string, wsServer *ws.Server) *BoilerController {
-	if portName == "" {
+func NewBoilerController(portSpec string, wsServer *ws.Server) *BoilerController {
+	if portSpec == "" {
 		return nil
 	}
 
 	bc := &BoilerController{
+		portSpec:        portSpec,
 		wsServer:        wsServer,
-		pauseQueryChan:  make(chan struct{}, 1), // [수정] 채널 버퍼 추가
-		resumeQueryChan: make(chan struct{}, 1), // [수정] 채널 버퍼 추가
+		pauseQueryChan:  make(chan struct{}, 1),
+		resumeQueryChan: make(chan struct{}, 1),
 		readBuffer:      make([]byte, ReadBufferSize),
 	}
 
@@ -103,7 +106,7 @@ func NewBoilerController(portName string, wsServer *ws.Server) *BoilerController
 		bc.prevSetTemp[i] = 0xFF
 	}
 
-	if err := bc.initSerial(portName); err != nil {
+	if err := bc.connectSerial(); err != nil {
 		log.Printf("Failed to init boiler serial: %v", err)
 		return nil
 	}
@@ -114,28 +117,53 @@ func NewBoilerController(portName string, wsServer *ws.Server) *BoilerController
 	return bc
 }
 
-func (bc *BoilerController) initSerial(portName string) error {
-	config := &serial.Config{
-		Name:        portName,
-		Baud:        SerialBaudRate,
-		Size:        8,
-		Parity:      serial.ParityNone,
-		StopBits:    serial.Stop1,
-		ReadTimeout: SerialReadTimeout,
+func (bc *BoilerController) connectSerial() error {
+	for {
+		portName := config.ResolveSerialPort(bc.portSpec)
+		if portName == "" {
+			log.Printf("[BOILER] USB 장치를 찾을 수 없습니다: %s, 3초 후 재시도...", bc.portSpec)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+
+		log.Printf("[BOILER] 시리얼 포트 %s 연결 시도 중...", portName)
+		port, err := serial.OpenPort(&serial.Config{
+			Name:        portName,
+			Baud:        SerialBaudRate,
+			Size:        8,
+			Parity:      serial.ParityNone,
+			StopBits:    serial.Stop1,
+			ReadTimeout: SerialReadTimeout,
+		})
+		if err != nil {
+			log.Printf("[BOILER] 시리얼 포트 연결 실패: %v", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		bc.port = port
+		break
 	}
 
-	port, err := serial.OpenPort(config)
-	if err != nil {
-		return err
-	}
-	bc.port = port
 	log.Println("[BOILER] 시리얼 포트 연결 성공!")
 	return nil
+}
+
+func (bc *BoilerController) reconnectSerial() {
+	bc.serialMu.Lock()
+	if bc.port != nil {
+		bc.port.Close()
+		bc.port = nil
+	}
+	bc.serialMu.Unlock()
+
+	log.Printf("[BOILER] 시리얼 포트 재연결 시도 중... (%s)", bc.portSpec)
+	bc.connectSerial()
 }
 
 func (bc *BoilerController) startStatusMonitoring() {
 	buf := make([]byte, 1024)
 	bufLen := 0
+	consecutiveErrors := 0
 
 	for {
 		select {
@@ -169,6 +197,11 @@ func (bc *BoilerController) startStatusMonitoring() {
 				if err != nil {
 					log.Printf("[BOILER] 상태 조회 중 시리얼 포트 쓰기 에러: %v\n", err)
 					bc.serialMu.Unlock()
+					consecutiveErrors++
+					if consecutiveErrors >= 5 {
+						consecutiveErrors = 0
+						bc.reconnectSerial()
+					}
 					time.Sleep(1 * time.Second)
 					continue
 				}
@@ -178,9 +211,16 @@ func (bc *BoilerController) startStatusMonitoring() {
 
 				if err != nil && err.Error() != "EOF" {
 					log.Printf("[BOILER] 상태 조회 중 시리얼 포트 읽기 에러: %v\n", err)
+					consecutiveErrors++
+					if consecutiveErrors >= 5 {
+						consecutiveErrors = 0
+						bc.reconnectSerial()
+					}
 					time.Sleep(1 * time.Second)
 					continue
 				}
+
+				consecutiveErrors = 0
 
 				if n > 0 {
 					copy(buf[bufLen:], bc.readBuffer[:n])
@@ -201,12 +241,10 @@ func (bc *BoilerController) startStatusMonitoring() {
 						copy(buf, buf[parsedOffset:bufLen])
 						bufLen -= parsedOffset
 					} else if bufLen > 16 {
-						// [수정] 무작정 8바이트를 날리지 않고, 다음 유효 헤더를 찾을 때까지 1바이트씩 밀어냅니다.
 						for bufLen > 0 && buf[0] != 0x82 && buf[0] != 0x84 {
 							copy(buf, buf[1:bufLen])
 							bufLen--
 						}
-						// 그래도 버퍼가 16바이트 이상 쌓여있다면, 안전을 위해 최근 8바이트만 남깁니다.
 						if bufLen > 16 {
 							copy(buf, buf[bufLen-8:bufLen])
 							bufLen = 8
@@ -315,7 +353,6 @@ func (bc *BoilerController) wsCommandRouter(msg ws.WSMsg) {
 	if msg.Action == "set_mode" {
 		modeStr := fmt.Sprintf("%v", msg.Value)
 
-		// [수정] 캐시 상태(currentBoilerState)와 무관하게 무조건 명령 전송
 		if modeStr == "heat" {
 			packet = bc.makeBoilerPacket(room, CmdTypeMode, ValueHeatOn)
 			log.Printf("[WS] 보일러%d 난방 ON 명령 전송 (캐시상태: %d)\n", room, currentBoilerState)
@@ -349,16 +386,13 @@ func (bc *BoilerController) wsCommandRouter(msg ws.WSMsg) {
 }
 
 func (bc *BoilerController) sendCommandAndQuery(packet []byte) {
-	// 1. NON-BLOCKING Pause Signal (데드락 방지)
 	select {
 	case bc.pauseQueryChan <- struct{}{}:
 	default:
 	}
 
-	// 2. Transmit command
 	bc.serialMu.Lock()
 	if bc.port != nil {
-		// 명령 보내기 전 이전 쓰레기 데이터 비우기
 		drBuf := make([]byte, 128)
 		for {
 			dn, _ := bc.port.Read(drBuf)
@@ -372,11 +406,9 @@ func (bc *BoilerController) sendCommandAndQuery(packet []byte) {
 			log.Printf("[BOILER] 명령어 에러: %v", err)
 		}
 
-		// [수정] 명령 전송 직후 들어오는 보일러의 응답(ACK)을 읽어서 버려줌
 		time.Sleep(CommandDelay)
 		bc.port.Read(drBuf)
 
-		// 3. Immediately query all rooms
 		for i := 0; i < MaxRooms; i++ {
 			bc.port.Write(bc.statusQueryPackets[i])
 			time.Sleep(StatusQueryDelay)
@@ -393,7 +425,6 @@ func (bc *BoilerController) sendCommandAndQuery(packet []byte) {
 	}
 	bc.serialMu.Unlock()
 
-	// 4. Signal background polling to resume
 	select {
 	case bc.resumeQueryChan <- struct{}{}:
 	default:

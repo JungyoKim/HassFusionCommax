@@ -25,10 +25,9 @@ async def async_setup_entry(
     """Set up the HassFusion Climate platform."""
     hub: HassFusionHub = hass.data[DOMAIN][config_entry.entry_id]
 
-    # Statically create the 4 predefined boilers
     names = ["거실 보일러", "안방 보일러", "서재 보일러", "침실 보일러"]
     boilers = []
-    
+
     for i, name in enumerate(names, 1):
         boilers.append(HassFusionBoiler(hub, f"boiler_{i}", name))
 
@@ -43,8 +42,7 @@ class HassFusionBoiler(ClimateEntity):
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
     _attr_target_temperature_step = 1
     _attr_icon = "mdi:heating-coil"
-    
-    # Sensible bounds
+
     _attr_min_temp = 5
     _attr_max_temp = 35
 
@@ -54,29 +52,46 @@ class HassFusionBoiler(ClimateEntity):
         self._device_id = device_id
         self._attr_name = name
         self._attr_unique_id = f"hassfusion_{device_id}"
-        
-        # Initial defaults
+
         self._attr_hvac_mode = HVACMode.OFF
         self._attr_current_temperature = 20.0
         self._attr_target_temperature = 20.0
+        self._unsub_event: Any = None
+        self._unsub_avail: Any = None
+
+    @property
+    def available(self) -> bool:
+        """Return True if the hub is connected."""
+        return self._hub.connected
 
     async def async_added_to_hass(self) -> None:
         """Register callbacks."""
-        self._hub.subscribe(self._device_id, self._handle_event)
+        self._unsub_event = self._hub.subscribe(self._device_id, self._handle_event)
+        self._unsub_avail = self._hub.register_availability_callback(self._handle_availability)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister callbacks."""
+        if self._unsub_event:
+            self._unsub_event()
+        if self._unsub_avail:
+            self._unsub_avail()
+
+    @callback
+    def _handle_availability(self, available: bool) -> None:
+        """Handle connection state changes."""
+        self.async_write_ha_state()
 
     @callback
     def _handle_event(self, event: dict) -> None:
         """Handle state updates from Go Daemon."""
         attrs = event.get("attributes", {})
-        
-        # Mode mapping
+
         mode_str = attrs.get("mode", "off")
         if mode_str == "heat":
             self._attr_hvac_mode = HVACMode.HEAT
         else:
             self._attr_hvac_mode = HVACMode.OFF
-            
-        # Temps
+
         self._attr_current_temperature = float(attrs.get("current_temp", self._attr_current_temperature))
         self._attr_target_temperature = float(attrs.get("target_temp", self._attr_target_temperature))
 
@@ -87,7 +102,7 @@ class HassFusionBoiler(ClimateEntity):
         mode_str = "off"
         if hvac_mode == HVACMode.HEAT:
             mode_str = "heat"
-            
+
         await self._hub.send_command("climate", self._device_id, "set_mode", mode_str)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:

@@ -11,10 +11,12 @@ import (
 
 	"github.com/tarm/serial"
 
+	"hassfusion/config"
 	"hassfusion/ws"
 )
 
 type LightController struct {
+	portSpec          string // 원본 포트 설정값 (e.g., "usb:1-2.1.1")
 	port              *serial.Port
 	wsServer          *ws.Server
 	lightStatus       []int
@@ -88,12 +90,13 @@ func (lc *LightController) processStatusResponse(resp string) {
 	}
 }
 
-func NewLightController(portName string, wsServer *ws.Server) *LightController {
-	if portName == "" {
+func NewLightController(portSpec string, wsServer *ws.Server) *LightController {
+	if portSpec == "" {
 		return nil
 	}
 
 	lc := &LightController{
+		portSpec:          portSpec,
 		wsServer:          wsServer,
 		lightStatus:       make([]int, 5),
 		prevStatus:        []int{-1, -1, -1, -1, -1},
@@ -126,29 +129,34 @@ func NewLightController(portName string, wsServer *ws.Server) *LightController {
 		statusOffPrefix: "B000",
 	}
 
-	if err := lc.connectSerial(portName); err != nil {
+	if err := lc.connectSerial(); err != nil {
 		return nil
 	}
 
 	wsServer.RegisterHandler("light", lc.wsCommandRouter)
-	go lc.statusQueryLoop(portName)
+	go lc.statusQueryLoop()
 
 	return lc
 }
 
-func (lc *LightController) connectSerial(portName string) error {
-	config := &serial.Config{
-		Name:        portName,
-		Baud:        9600,
-		Size:        8,
-		Parity:      serial.ParityNone,
-		StopBits:    serial.Stop1,
-		ReadTimeout: 100 * time.Millisecond,
-	}
-
+func (lc *LightController) connectSerial() error {
 	for {
+		portName := config.ResolveSerialPort(lc.portSpec)
+		if portName == "" {
+			log.Printf("[LIGHT] USB 장치를 찾을 수 없습니다: %s, 3초 후 재시도...", lc.portSpec)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+
 		log.Printf("[LIGHT] 시리얼 포트 %s 연결 시도 중...", portName)
-		port, err := serial.OpenPort(config)
+		port, err := serial.OpenPort(&serial.Config{
+			Name:        portName,
+			Baud:        9600,
+			Size:        8,
+			Parity:      serial.ParityNone,
+			StopBits:    serial.Stop1,
+			ReadTimeout: 100 * time.Millisecond,
+		})
 		if err != nil {
 			log.Printf("[LIGHT] 시리얼 포트 연결 실패: %v", err)
 			time.Sleep(3 * time.Second)
@@ -162,9 +170,22 @@ func (lc *LightController) connectSerial(portName string) error {
 	return nil
 }
 
-func (lc *LightController) statusQueryLoop(portName string) {
+func (lc *LightController) reconnectSerial() {
+	lc.serialMu.Lock()
+	if lc.port != nil {
+		lc.port.Close()
+		lc.port = nil
+	}
+	lc.serialMu.Unlock()
+
+	log.Printf("[LIGHT] 시리얼 포트 재연결 시도 중... (%s)", lc.portSpec)
+	lc.connectSerial()
+}
+
+func (lc *LightController) statusQueryLoop() {
 	var packetBuf []byte
 	var lastReadTime time.Time
+	consecutiveErrors := 0
 
 	for {
 		// BLOCKING Pause: Wait until command acknowledge
@@ -203,6 +224,11 @@ func (lc *LightController) statusQueryLoop(portName string) {
 			if err != nil {
 				lc.serialMu.Unlock()
 				log.Printf("[LIGHT] 시리얼 포트 쓰기 에러: %v\n", err)
+				consecutiveErrors++
+				if consecutiveErrors >= 5 {
+					consecutiveErrors = 0
+					lc.reconnectSerial()
+				}
 				time.Sleep(1 * time.Second)
 				continue
 			}
@@ -212,9 +238,16 @@ func (lc *LightController) statusQueryLoop(portName string) {
 
 			if err != nil && err.Error() != "EOF" {
 				log.Printf("[LIGHT] 시리얼 포트 읽기 에러: %v\n", err)
+				consecutiveErrors++
+				if consecutiveErrors >= 5 {
+					consecutiveErrors = 0
+					lc.reconnectSerial()
+				}
 				time.Sleep(1 * time.Second)
 				continue
 			}
+
+			consecutiveErrors = 0
 
 			if n > 0 {
 				now := time.Now()
@@ -233,7 +266,6 @@ func (lc *LightController) statusQueryLoop(portName string) {
 						packetBuf = packetBuf[:0]
 					}
 				} else if len(packetBuf) > 64 {
-					// [수정3] 버퍼가 길어졌다고 무조건 날리지 않고, 앞부분만 잘라내어 파편화 패킷 유실 방지
 					packetBuf = packetBuf[len(packetBuf)-32:]
 				}
 			}
@@ -269,7 +301,6 @@ func (lc *LightController) wsCommandRouter(msg ws.WSMsg) {
 		}
 	}
 
-	// [수정1] 상태 캐시(cur)와 상관없이 무조건 물리적인 제어 명령을 전송하도록 변경
 	if action == "turn_on" {
 		pkt = lc.onPackets[idx]
 		log.Printf("[LIGHT] 조명%d ON 명령 전송 (캐시상태: %d)\n", idx+1, cur)
@@ -280,17 +311,13 @@ func (lc *LightController) wsCommandRouter(msg ws.WSMsg) {
 		return
 	}
 
-	// [수정2] 빠른 연속 클릭 시 채널이 꽉 차서 데드락이 발생하는 것을 막기 위해 select 문 사용
 	select {
 	case lc.pauseStatusQuery <- true:
 	default:
-		// 이미 멈춤 신호가 가 있다면 무시
 	}
 
-	// 시리얼 포트 접근 권한 획득
 	lc.serialMu.Lock()
 
-	// 버퍼에 남은 쓰레기 데이터 비우기 (응답 충돌 방지)
 	drainBuf := make([]byte, 128)
 	for {
 		dn, _ := lc.port.Read(drainBuf)
@@ -304,10 +331,8 @@ func (lc *LightController) wsCommandRouter(msg ws.WSMsg) {
 
 	lc.serialMu.Unlock()
 
-	// 기기가 명령을 처리하고 응답할 충분한 시간 대기
 	time.Sleep(100 * time.Millisecond)
 
-	// 상태 조회 재개
 	select {
 	case lc.resumeStatusQuery <- true:
 	default:

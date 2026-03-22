@@ -1,5 +1,6 @@
 """Platform for binary sensor integration."""
 import logging
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -25,12 +26,12 @@ async def async_setup_entry(
 
     sensors = [
         HassFusionDoorbell(hub, "doorbell", "현관 도어벨"),
-        
+
         # Elevator 1 Binary Sensors
         HassFusionGenericBinarySensor(hub, "elevator_1_call_up", "엘리베이터 1호기 상행 호출", "mdi:elevator-up", BinarySensorDeviceClass.PRESENCE),
         HassFusionGenericBinarySensor(hub, "elevator_1_call_down", "엘리베이터 1호기 하행 호출", "mdi:elevator-down", BinarySensorDeviceClass.PRESENCE),
         HassFusionGenericBinarySensor(hub, "elevator_1_basement", "엘리베이터 1호기 지하 여부", "mdi:stairs-down", None),
-        
+
         # Elevator 2 Binary Sensors
         HassFusionGenericBinarySensor(hub, "elevator_2_call_up", "엘리베이터 2호기 상행 호출", "mdi:elevator-up", BinarySensorDeviceClass.PRESENCE),
         HassFusionGenericBinarySensor(hub, "elevator_2_call_down", "엘리베이터 2호기 하행 호출", "mdi:elevator-down", BinarySensorDeviceClass.PRESENCE),
@@ -44,7 +45,7 @@ class HassFusionGenericBinarySensor(BinarySensorEntity):
     def __init__(self, hub: HassFusionHub, device_id: str, name: str, icon: str = None, device_class: str = None) -> None:
         self._hub = hub
         self._device_id = device_id
-        
+
         self._attr_name = name
         self._attr_unique_id = f"hassfusion_binary_sensor_{device_id}"
         if icon:
@@ -52,9 +53,27 @@ class HassFusionGenericBinarySensor(BinarySensorEntity):
         if device_class:
             self._attr_device_class = device_class
         self._attr_is_on = False
+        self._unsub_event: Any = None
+        self._unsub_avail: Any = None
+
+    @property
+    def available(self) -> bool:
+        """Return True if the hub is connected."""
+        return self._hub.connected
 
     async def async_added_to_hass(self) -> None:
-        self._hub.subscribe(self._device_id, self._handle_event)
+        self._unsub_event = self._hub.subscribe(self._device_id, self._handle_event)
+        self._unsub_avail = self._hub.register_availability_callback(self._handle_availability)
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub_event:
+            self._unsub_event()
+        if self._unsub_avail:
+            self._unsub_avail()
+
+    @callback
+    def _handle_availability(self, available: bool) -> None:
+        self.async_write_ha_state()
 
     @callback
     def _handle_event(self, event: dict) -> None:
@@ -72,23 +91,42 @@ class HassFusionDoorbell(BinarySensorEntity):
         """Initialize the sensor."""
         self._hub = hub
         self._device_id = device_id
-        
+
         self._attr_name = name
         self._attr_unique_id = f"hassfusion_binary_sensor_{device_id}"
         self._attr_is_on = False
+        self._unsub_event: Any = None
+        self._unsub_avail: Any = None
+
+    @property
+    def available(self) -> bool:
+        """Return True if the hub is connected."""
+        return self._hub.connected
 
     async def async_added_to_hass(self) -> None:
         """Register callbacks."""
-        self._hub.subscribe(self._device_id, self._handle_event)
+        self._unsub_event = self._hub.subscribe(self._device_id, self._handle_event)
+        self._unsub_avail = self._hub.register_availability_callback(self._handle_availability)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister callbacks."""
+        if self._unsub_event:
+            self._unsub_event()
+        if self._unsub_avail:
+            self._unsub_avail()
+
+    @callback
+    def _handle_availability(self, available: bool) -> None:
+        self.async_write_ha_state()
 
     @callback
     def _handle_event(self, event: dict) -> None:
         """Handle state updates from Go Daemon."""
         state = event.get("state")
-        
+
         if state == "on":
             self._attr_is_on = True
         else:
             self._attr_is_on = False
-            
+
         self.async_write_ha_state()

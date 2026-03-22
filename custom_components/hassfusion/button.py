@@ -25,7 +25,7 @@ async def async_setup_entry(
         HassFusionButton(hub, "door_B4", "button", "지하 4층 공동현관 열기", "press", "mdi:door-open"),
         HassFusionButton(hub, "door_B3", "button", "지하 3층 공동현관 열기", "press", "mdi:door-open"),
         HassFusionButton(hub, "door_1F", "button", "1층 공동현관 열기", "press", "mdi:door-open"),
-        
+
         # RS485 Front Door and Elevator Buttons
         HassFusionButton(hub, "doorbell", "doorbell_button", "현관문 열기", "press", "mdi:door-open"),
         HassFusionButton(hub, "elevator_call", "elevator_button", "엘리베이터 호출", "press", "mdi:elevator"),
@@ -42,10 +42,29 @@ class HassFusionButton(ButtonEntity):
         self._device_id = device_id
         self._domain = domain
         self._action = action
-        
+
         self._attr_name = name
         self._attr_unique_id = f"hassfusion_{device_id}"
         self._attr_icon = icon
+        self._unsub_avail: Any = None
+
+    @property
+    def available(self) -> bool:
+        """Return True if the hub is connected."""
+        return self._hub.connected
+
+    async def async_added_to_hass(self) -> None:
+        """Register availability callback."""
+        self._unsub_avail = self._hub.register_availability_callback(self._handle_availability)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unregister callbacks."""
+        if self._unsub_avail:
+            self._unsub_avail()
+
+    def _handle_availability(self, available: bool) -> None:
+        """Handle connection state changes."""
+        self.schedule_update_ha_state()
 
     async def async_press(self) -> None:
         """Handle the button press."""

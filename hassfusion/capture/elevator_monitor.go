@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"hassfusion/config"
@@ -61,6 +62,7 @@ type ElevatorMonitor struct {
 	wsServer       *ws.Server
 	soapURL        string
 	previousStates map[int]ElevatorState
+	stateMu        sync.RWMutex // previousStates 동시 접근 보호
 	httpClient     *http.Client // 연결 관리용 HTTP 클라이언트
 }
 
@@ -122,7 +124,9 @@ func (em *ElevatorMonitor) Run() {
 
 			if em.hasStateChanged(idx, currentState) {
 				em.broadcastChanges(idx+1, currentState)
+				em.stateMu.Lock()
 				em.previousStates[idx] = currentState
+				em.stateMu.Unlock()
 			}
 		}
 
@@ -137,7 +141,14 @@ func (em *ElevatorMonitor) Run() {
 
 // BroadcastAll sends the current cached state of both elevators
 func (em *ElevatorMonitor) BroadcastAll() {
+	em.stateMu.RLock()
+	states := make(map[int]ElevatorState, len(em.previousStates))
 	for idx, s := range em.previousStates {
+		states[idx] = s
+	}
+	em.stateMu.RUnlock()
+
+	for idx, s := range states {
 		em.broadcastChanges(idx+1, s)
 	}
 }
@@ -169,7 +180,9 @@ func (em *ElevatorMonitor) getElevatorStatus() ([]Item, error) {
 }
 
 func (em *ElevatorMonitor) hasStateChanged(elevatorIndex int, currentState ElevatorState) bool {
+	em.stateMu.RLock()
 	prevState, exists := em.previousStates[elevatorIndex]
+	em.stateMu.RUnlock()
 	if !exists {
 		return true
 	}

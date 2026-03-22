@@ -7,10 +7,12 @@ import (
 
 	"github.com/tarm/serial"
 
+	"hassfusion/config"
 	"hassfusion/ws"
 )
 
 type AllOffController struct {
+	portSpec   string // 원본 포트 설정값 (e.g., "usb:1-2.1.4")
 	port       *serial.Port
 	wsServer   *ws.Server
 	lastState  string
@@ -28,25 +30,13 @@ type AllOffController struct {
 	statusMu      sync.Mutex
 }
 
-func NewAllOffController(devicePath string, wsServer *ws.Server) *AllOffController {
-	if devicePath == "" {
-		return nil
-	}
-
-	config := &serial.Config{
-		Name:        devicePath,
-		Baud:        9600,
-		ReadTimeout: 100 * time.Millisecond,
-	}
-
-	port, err := serial.OpenPort(config)
-	if err != nil {
-		log.Printf("Failed to open alloff serial %s: %v", devicePath, err)
+func NewAllOffController(portSpec string, wsServer *ws.Server) *AllOffController {
+	if portSpec == "" {
 		return nil
 	}
 
 	ac := &AllOffController{
-		port:            port,
+		portSpec:        portSpec,
 		wsServer:        wsServer,
 		lastState:       "off",
 		readBuffer:      make([]byte, 128),
@@ -59,12 +49,56 @@ func NewAllOffController(devicePath string, wsServer *ws.Server) *AllOffControll
 		elevatorPacket:  []byte{0xA0, 0x01, 0x01, 0x00, 0x08, 0x15, 0x00, 0xBF},
 	}
 
+	if err := ac.connectSerial(); err != nil {
+		return nil
+	}
+
 	wsServer.RegisterHandler("switch", ac.wsCommandRouter)
 	wsServer.RegisterHandler("elevator_button", ac.wsElevatorRouter)
 
 	go ac.pollingLoop()
 
 	return ac
+}
+
+func (ac *AllOffController) connectSerial() error {
+	for {
+		portName := config.ResolveSerialPort(ac.portSpec)
+		if portName == "" {
+			log.Printf("[ALLOFF] USB 장치를 찾을 수 없습니다: %s, 3초 후 재시도...", ac.portSpec)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+
+		log.Printf("[ALLOFF] 시리얼 포트 %s 연결 시도 중...", portName)
+		port, err := serial.OpenPort(&serial.Config{
+			Name:        portName,
+			Baud:        9600,
+			ReadTimeout: 100 * time.Millisecond,
+		})
+		if err != nil {
+			log.Printf("[ALLOFF] 시리얼 포트 연결 실패: %v", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		ac.port = port
+		break
+	}
+
+	log.Println("[ALLOFF] 시리얼 포트 연결 성공!")
+	return nil
+}
+
+func (ac *AllOffController) reconnectSerial() {
+	ac.statusMu.Lock()
+	if ac.port != nil {
+		ac.port.Close()
+		ac.port = nil
+	}
+	ac.statusMu.Unlock()
+
+	log.Printf("[ALLOFF] 시리얼 포트 재연결 시도 중... (%s)", ac.portSpec)
+	ac.connectSerial()
 }
 
 func parseAlloffStatusPacket(pkt []byte) (string, bool) {
@@ -85,6 +119,7 @@ func parseAlloffStatusPacket(pkt []byte) (string, bool) {
 
 func (ac *AllOffController) pollingLoop() {
 	var lastReadTime time.Time
+	consecutiveErrors := 0
 
 	for {
 		// BLOCKING Pause
@@ -120,6 +155,11 @@ func (ac *AllOffController) pollingLoop() {
 			if err != nil {
 				ac.statusMu.Unlock()
 				log.Printf("[ALLOFF] 상태 요청 패킷 전송 실패: %v\n", err)
+				consecutiveErrors++
+				if consecutiveErrors >= 5 {
+					consecutiveErrors = 0
+					ac.reconnectSerial()
+				}
 				time.Sleep(1 * time.Second)
 				continue
 			}
@@ -127,6 +167,16 @@ func (ac *AllOffController) pollingLoop() {
 			time.Sleep(75 * time.Millisecond)
 			n, err := ac.port.Read(ac.readBuffer)
 			ac.statusMu.Unlock()
+
+			if err != nil && err.Error() != "EOF" {
+				consecutiveErrors++
+				if consecutiveErrors >= 5 {
+					consecutiveErrors = 0
+					ac.reconnectSerial()
+				}
+			} else {
+				consecutiveErrors = 0
+			}
 
 			if err == nil && n > 0 {
 				now := time.Now()
@@ -158,7 +208,6 @@ func (ac *AllOffController) pollingLoop() {
 					}
 				}
 
-				// [수정3] 버퍼가 넘칠 때 전부 초기화하지 않고 앞부분만 잘라내기
 				if len(ac.packetBuf) > 128 {
 					ac.packetBuf = ac.packetBuf[len(ac.packetBuf)-64:]
 				}
@@ -183,7 +232,6 @@ func (ac *AllOffController) wsCommandRouter(msg ws.WSMsg) {
 		return
 	}
 
-	// [수정1] 데드락 방지용 NON-BLOCKING Pause
 	select {
 	case ac.pauseChan <- true:
 	default:
@@ -200,7 +248,6 @@ func (ac *AllOffController) wsCommandRouter(msg ws.WSMsg) {
 
 	ac.statusMu.Lock()
 	if ac.port != nil {
-		// 전송 전 쓰레기 데이터 비우기
 		drBuf := make([]byte, 128)
 		for {
 			dn, _ := ac.port.Read(drBuf)
@@ -212,13 +259,11 @@ func (ac *AllOffController) wsCommandRouter(msg ws.WSMsg) {
 		ac.port.Write(pkt)
 		log.Printf("[ALLOFF] AllOff command sent: %s", msg.Action)
 
-		// [수정2] 명령 전송 직후 기기에서 오는 응답(ACK)을 읽어서 버퍼 꼬임 방지
 		time.Sleep(75 * time.Millisecond)
 		ac.port.Read(drBuf)
 	}
 	ac.statusMu.Unlock()
 
-	// 3. Resume Signal
 	select {
 	case ac.resumeChan <- true:
 	default:
@@ -230,7 +275,6 @@ func (ac *AllOffController) wsElevatorRouter(msg ws.WSMsg) {
 		return
 	}
 
-	// [수정1] 데드락 방지용 NON-BLOCKING Pause
 	select {
 	case ac.pauseChan <- true:
 	default:
@@ -238,7 +282,6 @@ func (ac *AllOffController) wsElevatorRouter(msg ws.WSMsg) {
 
 	ac.statusMu.Lock()
 	if ac.port != nil {
-		// 전송 전 쓰레기 데이터 비우기
 		drBuf := make([]byte, 128)
 		for {
 			dn, _ := ac.port.Read(drBuf)
@@ -250,13 +293,11 @@ func (ac *AllOffController) wsElevatorRouter(msg ws.WSMsg) {
 		ac.port.Write(ac.elevatorPacket)
 		log.Printf("[ALLOFF] Elevator call packet sent")
 
-		// [수정2] 엘리베이터 호출 응답(ACK) 읽어내기
 		time.Sleep(75 * time.Millisecond)
 		ac.port.Read(drBuf)
 	}
 	ac.statusMu.Unlock()
 
-	// 3. Resume Signal
 	select {
 	case ac.resumeChan <- true:
 	default:

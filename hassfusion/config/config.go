@@ -2,7 +2,10 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,10 +18,10 @@ type Config struct {
 	} `yaml:"websocket"`
 
 	RS485 struct {
-		Lights   string `yaml:"lights"`   // e.g., /dev/ttyUSB0 or COM1
-		Boilers  string `yaml:"boilers"`  // e.g., /dev/ttyUSB1
-		Doorbell string `yaml:"doorbell"` // e.g., /dev/ttyUSB2
-		AllOff   string `yaml:"alloff"`   // e.g., /dev/ttyUSB3
+		Lights   string `yaml:"lights"`   // e.g., usb:1-2.1.1 or /dev/ttyUSB0
+		Boilers  string `yaml:"boilers"`  // e.g., usb:1-2.1.2
+		Doorbell string `yaml:"doorbell"` // e.g., usb:1-2.1.3
+		AllOff   string `yaml:"alloff"`   // e.g., usb:1-2.1.4
 	} `yaml:"rs485"`
 
 	TCP struct {
@@ -48,6 +51,62 @@ type Config struct {
 		Dong     string `yaml:"dong"`
 		Ho       string `yaml:"ho"`
 	} `yaml:"wallpad"`
+}
+
+// ResolveSerialPort resolves a serial port path.
+// If the path starts with "usb:", it looks up the USB physical port path
+// (e.g., "usb:1-2.1.1") and returns the corresponding /dev/ttyUSB* device.
+// Otherwise, returns the path as-is.
+func ResolveSerialPort(portSpec string) string {
+	if !strings.HasPrefix(portSpec, "usb:") {
+		return portSpec
+	}
+
+	usbPath := strings.TrimPrefix(portSpec, "usb:")
+	resolved := findTTYByUSBPath(usbPath)
+	if resolved == "" {
+		log.Printf("[CONFIG] USB 장치를 찾을 수 없습니다: %s", usbPath)
+		return ""
+	}
+	log.Printf("[CONFIG] USB 경로 %s → %s", usbPath, resolved)
+	return resolved
+}
+
+// findTTYByUSBPath scans sysfs to find which /dev/ttyUSB* device corresponds
+// to the given USB physical port path (e.g., "1-2.1.1").
+//
+// sysfs structure:
+//   /sys/bus/usb-serial/devices/ttyUSB0 -> ../../../1-2.1.1:1.0/ttyUSB0
+//
+// The symlink target contains the USB physical path, so we can match against it.
+func findTTYByUSBPath(usbPath string) string {
+	const sysfsDir = "/sys/bus/usb-serial/devices"
+
+	entries, err := os.ReadDir(sysfsDir)
+	if err != nil {
+		log.Printf("[CONFIG] sysfs 디렉토리 읽기 실패: %v", err)
+		return ""
+	}
+
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), "ttyUSB") {
+			continue
+		}
+
+		linkPath := filepath.Join(sysfsDir, entry.Name())
+		target, err := os.Readlink(linkPath)
+		if err != nil {
+			continue
+		}
+
+		// target looks like: ../../../1-2.1.1:1.0/ttyUSB0
+		// Check if it contains our USB path
+		if strings.Contains(target, usbPath+":") {
+			return "/dev/" + entry.Name()
+		}
+	}
+
+	return ""
 }
 
 // Load reads and parses the configuration file
