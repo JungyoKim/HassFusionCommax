@@ -3,10 +3,10 @@ websocket:
   port: 8080
 
 rs485:
-  lights: "usb:1-2.1.1"
-  boilers: "usb:1-2.1.2"
-  doorbell: "usb:1-2.1.3"
-  alloff: "usb:1-2.1.4"
+  lights: "usb:1-2.1.4"
+  boilers: "usb:1-2.1.3"
+  doorbell: "usb:1-2.1.2"
+  alloff: "usb:1-2.1.1"
 
 tcp:
   use_ssh: true

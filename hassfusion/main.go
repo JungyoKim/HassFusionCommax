@@ -32,6 +32,29 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// 1b. Auto-discover RS485 ports (override config on success)
+	// Only apply discovery results if at least one active role (lights/boilers/alloff)
+	// was identified — otherwise trust config.yaml and skip the doorbell-only fallback
+	// to avoid assigning the same port to multiple roles.
+	if pm, derr := rs485.DiscoverPorts(); derr != nil {
+		log.Printf("[DISCOVER] 자동 탐색 실패, config.yaml 값 사용: %v", derr)
+	} else if pm.Lights == "" && pm.Boilers == "" && pm.AllOff == "" {
+		log.Printf("[DISCOVER] 활성 role을 하나도 식별하지 못함 — config.yaml 값 유지")
+	} else {
+		if pm.Lights != "" {
+			cfg.RS485.Lights = pm.Lights
+		}
+		if pm.Boilers != "" {
+			cfg.RS485.Boilers = pm.Boilers
+		}
+		if pm.Doorbell != "" {
+			cfg.RS485.Doorbell = pm.Doorbell
+		}
+		if pm.AllOff != "" {
+			cfg.RS485.AllOff = pm.AllOff
+		}
+	}
+
 	// 2. Start WebSocket Server
 	wsServer := ws.NewServer()
 	http.HandleFunc("/ws", wsServer.HandleWS)
