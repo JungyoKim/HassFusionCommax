@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HassFusion",
+        "description": "Enter the address of the Go bridge daemon.",
+        "data": { "host": "Host (IP)", "port": "Port" }
+      }
+    },
+    "error": { "cannot_connect": "Cannot connect to the daemon. Check the address and port." },
+    "abort": { "already_configured": "This daemon is already configured." }
+  }
+}

@@ -49,14 +49,13 @@ func NewAllOffController(portSpec string, wsServer *ws.Server) *AllOffController
 		elevatorPacket:  []byte{0xA0, 0x01, 0x01, 0x00, 0x08, 0x15, 0x00, 0xBF},
 	}
 
-	if err := ac.connectSerial(); err != nil {
-		return nil
-	}
-
+	// Connect in the background so a missing/slow USB adapter can't block startup.
 	wsServer.RegisterHandler("switch", ac.wsCommandRouter)
 	wsServer.RegisterHandler("elevator_button", ac.wsElevatorRouter)
-
-	go ac.pollingLoop()
+	go func() {
+		ac.connectSerial()
+		ac.pollingLoop()
+	}()
 
 	return ac
 }
@@ -81,7 +80,9 @@ func (ac *AllOffController) connectSerial() error {
 			time.Sleep(3 * time.Second)
 			continue
 		}
+		ac.statusMu.Lock()
 		ac.port = port
+		ac.statusMu.Unlock()
 		break
 	}
 
@@ -102,10 +103,16 @@ func (ac *AllOffController) reconnectSerial() {
 }
 
 func parseAlloffStatusPacket(pkt []byte) (string, bool) {
-	if len(pkt) < 8 {
+	if len(pkt) < 8 || pkt[0] != 0xA0 {
 		return "", false
 	}
-	if pkt[0] != 0xA0 {
+	// Reject noise / bit-flipped frames via the trailing sum checksum before
+	// trusting the state byte (unlike lights, status was previously unvalidated).
+	var sum byte
+	for i := 0; i < 7; i++ {
+		sum += pkt[i]
+	}
+	if sum != pkt[7] {
 		return "", false
 	}
 	if pkt[1] == 0x01 && pkt[2] == 0x01 {
@@ -151,6 +158,11 @@ func (ac *AllOffController) pollingLoop() {
 
 			// Atomic Write-Read with Lock
 			ac.statusMu.Lock()
+			if ac.port == nil {
+				ac.statusMu.Unlock()
+				time.Sleep(300 * time.Millisecond)
+				continue
+			}
 			_, err := ac.port.Write(ac.statusReqPacket)
 			if err != nil {
 				ac.statusMu.Unlock()

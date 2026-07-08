@@ -32,6 +32,7 @@ class HassFusionLight(LightEntity):
     def __init__(self, hub: HassFusionHub, device_id: str, name: str, icon: str = "mdi:lightbulb") -> None:
         """Initialize."""
         self._hub = hub
+        self._attr_device_info = hub.device_info
         self._device_id = device_id
         self._attr_name = name
         self._attr_unique_id = f"hassfusion_{device_id}"

@@ -44,6 +44,7 @@ class HassFusionGenericBinarySensor(BinarySensorEntity):
 
     def __init__(self, hub: HassFusionHub, device_id: str, name: str, icon: str = None, device_class: str = None) -> None:
         self._hub = hub
+        self._attr_device_info = hub.device_info
         self._device_id = device_id
 
         self._attr_name = name
@@ -90,6 +91,7 @@ class HassFusionDoorbell(BinarySensorEntity):
     def __init__(self, hub: HassFusionHub, device_id: str, name: str) -> None:
         """Initialize the sensor."""
         self._hub = hub
+        self._attr_device_info = hub.device_info
         self._device_id = device_id
 
         self._attr_name = name

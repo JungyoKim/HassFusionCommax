@@ -7,6 +7,10 @@ from typing import Any, Callable
 import aiohttp
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
+
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +40,17 @@ class HassFusionHub:
     def connected(self) -> bool:
         """Return True if currently connected to the Go daemon."""
         return self._connected
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info for the shared HassFusion bridge device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self._host}:{self._port}")},
+            name="HassFusion Bridge",
+            manufacturer="Commax",
+            model="HassFusion",
+            configuration_url=None,
+        )
 
     def register_availability_callback(self, callback: Callable[[bool], None]) -> Callable[[], None]:
         """Register a callback for connection state changes. Returns unsubscribe callable."""
@@ -131,8 +146,7 @@ class HassFusionHub:
     async def send_command(self, domain: str, device_id: str, action: str, value: Any = None) -> None:
         """Send a command to the Go Daemon."""
         if not self._ws or self._ws.closed:
-            _LOGGER.error("Cannot send command, WebSocket is closed")
-            return
+            raise HomeAssistantError("HassFusion 데몬에 연결되어 있지 않습니다")
 
         payload = {
             "type": "command",

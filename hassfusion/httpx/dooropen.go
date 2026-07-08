@@ -47,7 +47,7 @@ func OpenDoor(floor string, cfg *config.Config) error {
 	req.Header.Set("User-Agent", "kSOAP/2.0")
 	req.Header.Set("Content-Type", "text/xml")
 	req.Header.Set("Connection", "close")
-	req.Header.Set("Host", targetIP)
+	req.Host = targetIP // net/http ignores a "Host" header; must set req.Host
 
 	// 참고: 보통 SOAP 요청은 SOAPAction 헤더를 요구하는 경우가 많습니다.
 	// 만약 테스트해 보시고 문이 안 열린다면 req.Header.Set("SOAPAction", "urn:clbs#setOutOfBandDoorOpen") 같은 헤더가 빠져서일 수 있습니다.

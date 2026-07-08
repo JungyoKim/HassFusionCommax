@@ -1,6 +1,7 @@
 package rs485
 
 import (
+	"encoding/hex"
 	"fmt"
 	"log"
 	"strconv"
@@ -20,8 +21,10 @@ const (
 	CommandDelay      = 75 * time.Millisecond
 	StatusQueryDelay  = 75 * time.Millisecond
 
-	MinTemp = 0x05
-	MaxTemp = 0x35
+	// Decimal °C bounds, matching the HA climate entity (min 5 / max 35).
+	// Values are BCD-encoded on the wire via byteToBcd at send time.
+	MinTemp = 5
+	MaxTemp = 35
 
 	CmdTypeMode = 0x04
 	CmdTypeTemp = 0x03
@@ -56,16 +59,11 @@ type BoilerController struct {
 }
 
 func hexStringToBytes(s string) []byte {
-	var b []byte
-	fmt.Sscanf(s, "%x", &b)
-	if len(s)%2 != 0 {
+	b, err := hex.DecodeString(s)
+	if err != nil {
 		return nil
 	}
-	res := make([]byte, len(s)/2)
-	for i := 0; i < len(s)/2; i++ {
-		fmt.Sscanf(s[i*2:i*2+2], "%02X", &res[i])
-	}
-	return res
+	return b
 }
 
 func bcdToByte(b byte) byte {
@@ -106,13 +104,12 @@ func NewBoilerController(portSpec string, wsServer *ws.Server) *BoilerController
 		bc.prevSetTemp[i] = 0xFF
 	}
 
-	if err := bc.connectSerial(); err != nil {
-		log.Printf("Failed to init boiler serial: %v", err)
-		return nil
-	}
-
+	// Connect in the background so a missing/slow USB adapter can't block startup.
 	wsServer.RegisterHandler("climate", bc.wsCommandRouter)
-	go bc.startStatusMonitoring()
+	go func() {
+		bc.connectSerial()
+		bc.startStatusMonitoring()
+	}()
 
 	return bc
 }
@@ -140,7 +137,9 @@ func (bc *BoilerController) connectSerial() error {
 			time.Sleep(3 * time.Second)
 			continue
 		}
+		bc.serialMu.Lock()
 		bc.port = port
+		bc.serialMu.Unlock()
 		break
 	}
 
@@ -374,9 +373,11 @@ func (bc *BoilerController) wsCommandRouter(msg ws.WSMsg) {
 			}
 		}
 
-		if temp > 0 {
+		if temp >= MinTemp && temp <= MaxTemp {
 			packet = bc.makeBoilerPacket(room, CmdTypeTemp, byteToBcd(byte(temp)))
 			log.Printf("[WS] 보일러%d 온도 %d도 설정 명령 전송\n", room, temp)
+		} else {
+			log.Printf("[WS] 보일러%d 온도 %d 범위 초과(%d~%d) — 무시\n", room, temp, MinTemp, MaxTemp)
 		}
 	}
 

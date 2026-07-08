@@ -32,27 +32,44 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// 1b. Auto-discover RS485 ports (override config on success)
-	// Only apply discovery results if at least one active role (lights/boilers/alloff)
-	// was identified — otherwise trust config.yaml and skip the doorbell-only fallback
-	// to avoid assigning the same port to multiple roles.
-	if pm, derr := rs485.DiscoverPorts(); derr != nil {
+	// 1b. Auto-discover RS485 ports — ONLY when config.yaml leaves a role empty.
+	//
+	// DiscoverPorts probes every USB-serial adapter by *writing* command packets
+	// (light/boiler/alloff queries) to buses it has not yet identified. On a live
+	// Commax bus that can be misread by other controllers — including the gas-valve
+	// unit sharing the all-off line, which has triggered a false gas-leak alarm.
+	// It also risks assigning one physical port to two roles. So when the user has
+	// already specified all four ports, we trust the config and never probe.
+	if cfg.RS485.Lights != "" && cfg.RS485.Boilers != "" &&
+		cfg.RS485.Doorbell != "" && cfg.RS485.AllOff != "" {
+		log.Printf("[DISCOVER] 모든 RS485 포트가 config.yaml에 지정됨 — 자동 탐색 생략 (버스 무단 쓰기 방지)")
+	} else if pm, derr := rs485.DiscoverPorts(); derr != nil {
 		log.Printf("[DISCOVER] 자동 탐색 실패, config.yaml 값 사용: %v", derr)
-	} else if pm.Lights == "" && pm.Boilers == "" && pm.AllOff == "" {
-		log.Printf("[DISCOVER] 활성 role을 하나도 식별하지 못함 — config.yaml 값 유지")
 	} else {
-		if pm.Lights != "" {
-			cfg.RS485.Lights = pm.Lights
+		// Fill ONLY roles left empty in config, and never reuse a port spec that
+		// config (or an earlier fill) already claimed — prevents double-open.
+		claimed := map[string]bool{}
+		for _, s := range []string{cfg.RS485.Lights, cfg.RS485.Boilers, cfg.RS485.Doorbell, cfg.RS485.AllOff} {
+			if s != "" {
+				claimed[s] = true
+			}
 		}
-		if pm.Boilers != "" {
-			cfg.RS485.Boilers = pm.Boilers
+		fill := func(dst *string, spec, role string) {
+			if *dst != "" || spec == "" {
+				return
+			}
+			if claimed[spec] {
+				log.Printf("[DISCOVER] %s=%s 은 이미 다른 role이 점유 — 무시 (이중 점유 방지)", role, spec)
+				return
+			}
+			*dst = spec
+			claimed[spec] = true
+			log.Printf("[DISCOVER] %s ← %s (config 미지정 role 자동 채움)", role, spec)
 		}
-		if pm.Doorbell != "" {
-			cfg.RS485.Doorbell = pm.Doorbell
-		}
-		if pm.AllOff != "" {
-			cfg.RS485.AllOff = pm.AllOff
-		}
+		fill(&cfg.RS485.Lights, pm.Lights, "lights")
+		fill(&cfg.RS485.Boilers, pm.Boilers, "boilers")
+		fill(&cfg.RS485.AllOff, pm.AllOff, "alloff")
+		fill(&cfg.RS485.Doorbell, pm.Doorbell, "doorbell")
 	}
 
 	// 2. Start WebSocket Server
@@ -143,11 +160,13 @@ func main() {
 		}
 	})
 
+	// Register the lobby door-open command handler unconditionally — it uses
+	// per-floor SOAP over HTTP and does not depend on the optional packet sniffing.
+	httpx.Setup(wsServer, cfg)
+
 	// 5. Start TCP Packet Sniffing (if configured)
 	if cfg.TCP.UseSSH {
 		if cfg.TCP.SSH.Host != "" {
-			httpx.Setup(wsServer, cfg)
-
 			log.Printf("Starting SSH capture: %s@%s", cfg.TCP.SSH.User, cfg.TCP.SSH.Host)
 
 			// 무한 재연결 로직 적용

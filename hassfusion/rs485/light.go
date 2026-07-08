@@ -4,8 +4,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -32,8 +30,6 @@ type LightController struct {
 	statusQueryPackets [5]string
 	onPackets          [5]string
 	offPackets         [5]string
-	statusOnPrefix     string
-	statusOffPrefix    string
 }
 
 func (lc *LightController) publishStateIfChanged(idx int, newStatus int) {
@@ -59,35 +55,47 @@ func (lc *LightController) publishStateIfChanged(idx int, newStatus int) {
 	}
 }
 
-func (lc *LightController) processStatusResponse(resp string) {
-	if len(resp) >= 6 {
-		numStr := resp[4:6]
-		idx, _ := strconv.ParseInt(numStr, 16, 64)
-
-		if idx >= 1 && idx <= 5 {
-			arrayIdx := int(idx) - 1
-
-			lc.statusMu.Lock()
-			oldStatus := lc.lightStatus[arrayIdx]
-			lc.statusMu.Unlock()
-
-			var newStatus int
-			if strings.HasPrefix(resp, lc.statusOnPrefix) {
-				newStatus = 1
-			} else if strings.HasPrefix(resp, lc.statusOffPrefix) {
-				newStatus = 0
-			} else {
-				return
-			}
-
-			if oldStatus != newStatus {
-				lc.statusMu.Lock()
-				lc.lightStatus[arrayIdx] = newStatus
-				lc.statusMu.Unlock()
-				lc.publishStateIfChanged(arrayIdx, newStatus)
-			}
-		}
+func validLightChecksum(pkt []byte) bool {
+	if len(pkt) != 8 {
+		return false
 	}
+	var sum byte
+	for i := 0; i < 7; i++ {
+		sum += pkt[i]
+	}
+	return sum == pkt[7]
+}
+
+// processStatusResponse handles a validated 8-byte light ack:
+// [0]=0xB0, [1]=state(0x01 on / 0x00 off), [2]=light number, [7]=checksum.
+func (lc *LightController) processStatusResponse(packet []byte) {
+	if len(packet) != 8 || packet[0] != 0xB0 {
+		return
+	}
+
+	num := int(packet[2])
+	if num < 1 || num > 5 {
+		return
+	}
+	arrayIdx := num - 1
+
+	var newStatus int
+	switch packet[1] {
+	case 0x01:
+		newStatus = 1
+	case 0x00:
+		newStatus = 0
+	default:
+		return
+	}
+
+	lc.statusMu.Lock()
+	lc.lightStatus[arrayIdx] = newStatus
+	lc.statusMu.Unlock()
+
+	// publishStateIfChanged dedups against prevStatus (init -1), so the first
+	// observation always emits — even for a light that is off at startup.
+	lc.publishStateIfChanged(arrayIdx, newStatus)
 }
 
 func NewLightController(portSpec string, wsServer *ws.Server) *LightController {
@@ -125,16 +133,16 @@ func NewLightController(portSpec string, wsServer *ws.Server) *LightController {
 			"3104000000000035",
 			"3105000000000036",
 		},
-		statusOnPrefix:  "B001",
-		statusOffPrefix: "B000",
 	}
 
-	if err := lc.connectSerial(); err != nil {
-		return nil
-	}
-
+	// Connect in the background so a missing/slow USB adapter can never block
+	// daemon startup (and thus the other controllers + WS handlers). The command
+	// router and query loop are nil-port-safe until the port comes up.
 	wsServer.RegisterHandler("light", lc.wsCommandRouter)
-	go lc.statusQueryLoop()
+	go func() {
+		lc.connectSerial()
+		lc.statusQueryLoop()
+	}()
 
 	return lc
 }
@@ -162,7 +170,9 @@ func (lc *LightController) connectSerial() error {
 			time.Sleep(3 * time.Second)
 			continue
 		}
+		lc.serialMu.Lock()
 		lc.port = port
+		lc.serialMu.Unlock()
 		break
 	}
 
@@ -219,6 +229,11 @@ func (lc *LightController) statusQueryLoop() {
 			}
 
 			lc.serialMu.Lock()
+			if lc.port == nil {
+				lc.serialMu.Unlock()
+				lc.reconnectSerial()
+				continue
+			}
 			hexBytes, _ := hex.DecodeString(pkt)
 			_, err := lc.port.Write(hexBytes)
 			if err != nil {
@@ -257,14 +272,20 @@ func (lc *LightController) statusQueryLoop() {
 				lastReadTime = now
 
 				packetBuf = append(packetBuf, lc.readBuffer[:n]...)
-				resp := strings.ToUpper(hex.EncodeToString(packetBuf))
 
-				idx := strings.Index(resp, "B0")
-				if idx != -1 {
-					if len(resp) >= idx+6 {
-						lc.processStatusResponse(resp[idx:])
-						packetBuf = packetBuf[:0]
+				// Byte-level scan: a hex-string search matches 0xB0 at misaligned
+				// nibbles. Require a checksum-valid 8-byte packet before trusting it.
+				parsedOffset := 0
+				for j := 0; j+8 <= len(packetBuf); j++ {
+					if packetBuf[j] == 0xB0 && validLightChecksum(packetBuf[j:j+8]) {
+						lc.processStatusResponse(packetBuf[j : j+8])
+						parsedOffset = j + 8
+						j += 7
 					}
+				}
+				if parsedOffset > 0 {
+					copy(packetBuf, packetBuf[parsedOffset:])
+					packetBuf = packetBuf[:len(packetBuf)-parsedOffset]
 				} else if len(packetBuf) > 64 {
 					packetBuf = packetBuf[len(packetBuf)-32:]
 				}
@@ -317,18 +338,20 @@ func (lc *LightController) wsCommandRouter(msg ws.WSMsg) {
 	}
 
 	lc.serialMu.Lock()
-
-	drainBuf := make([]byte, 128)
-	for {
-		dn, _ := lc.port.Read(drainBuf)
-		if dn == 0 {
-			break
+	if lc.port != nil {
+		drainBuf := make([]byte, 128)
+		for {
+			dn, _ := lc.port.Read(drainBuf)
+			if dn == 0 {
+				break
+			}
 		}
+
+		hexBytes, _ := hex.DecodeString(pkt)
+		lc.port.Write(hexBytes)
+	} else {
+		log.Printf("[LIGHT] 포트 재연결 중 — 명령 무시")
 	}
-
-	hexBytes, _ := hex.DecodeString(pkt)
-	lc.port.Write(hexBytes)
-
 	lc.serialMu.Unlock()
 
 	time.Sleep(100 * time.Millisecond)
@@ -344,10 +367,13 @@ func (lc *LightController) BroadcastAll() {
 	defer lc.statusMu.Unlock()
 
 	for i := 0; i < 5; i++ {
-		cur := lc.lightStatus[i]
-		if cur == -1 {
+		// prevStatus starts at -1 and is only set once a real poll response has
+		// been seen; lightStatus starts at 0 so it can't flag "unknown". Skip
+		// lights we've never actually observed to avoid broadcasting a fake "off".
+		if lc.prevStatus[i] == -1 {
 			continue
 		}
+		cur := lc.lightStatus[i]
 		stateStr := "off"
 		if cur == 1 {
 			stateStr = "on"

@@ -38,13 +38,12 @@ func NewDoorbellController(portSpec string, wsServer *ws.Server) *DoorbellContro
 		packetBuf:  make([]byte, 0, 512),
 	}
 
-	if err := dc.connectSerial(); err != nil {
-		return nil
-	}
-
+	// Connect in the background so a missing/slow USB adapter can't block startup.
 	wsServer.RegisterHandler("doorbell_button", dc.wsCommandRouter)
-
-	go dc.monitorLoop()
+	go func() {
+		dc.connectSerial()
+		dc.monitorLoop()
+	}()
 
 	return dc
 }
@@ -69,7 +68,9 @@ func (dc *DoorbellController) connectSerial() error {
 			time.Sleep(3 * time.Second)
 			continue
 		}
+		dc.serialMu.Lock()
 		dc.port = port
+		dc.serialMu.Unlock()
 		break
 	}
 
@@ -114,6 +115,11 @@ func (dc *DoorbellController) monitorLoop() {
 
 	for {
 		dc.serialMu.Lock()
+		if dc.port == nil {
+			dc.serialMu.Unlock()
+			dc.reconnectSerial()
+			continue
+		}
 		n, err := dc.port.Read(dc.readBuffer)
 		dc.serialMu.Unlock()
 
@@ -180,6 +186,11 @@ func (dc *DoorbellController) wsCommandRouter(msg ws.WSMsg) {
 	if msg.Action == "turn_on" || msg.Action == "press" {
 		dc.serialMu.Lock()
 		defer dc.serialMu.Unlock()
+
+		if dc.port == nil {
+			log.Printf("[DOORBELL] 포트 재연결 중 — 명령 무시")
+			return
+		}
 
 		_, err := dc.port.Write(doorOpenCmdPacket)
 		if err != nil {

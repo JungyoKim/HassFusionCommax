@@ -39,6 +39,7 @@ class HassFusionButton(ButtonEntity):
     def __init__(self, hub: HassFusionHub, device_id: str, domain: str, name: str, action: str, icon: str) -> None:
         """Initialize."""
         self._hub = hub
+        self._attr_device_info = hub.device_info
         self._device_id = device_id
         self._domain = domain
         self._action = action

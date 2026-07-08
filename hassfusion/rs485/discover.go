@@ -67,9 +67,10 @@ func getUSBPhysicalPath(dev string) string {
 	return dev
 }
 
-// validResponse checks 8-byte RS485 response: prefix match + checksum.
-func validResponse(data []byte, prefixes ...byte) bool {
-	if len(data) < 8 {
+// validResponse checks an n-byte RS485 response: prefix match + sum checksum.
+// Light acks are 7 bytes (checksum at [n-1]=[6]); alloff/boiler acks are 8 bytes.
+func validResponse(data []byte, n int, prefixes ...byte) bool {
+	if n < 2 || len(data) < n {
 		return false
 	}
 	matched := false
@@ -83,10 +84,10 @@ func validResponse(data []byte, prefixes ...byte) bool {
 		return false
 	}
 	var sum byte
-	for i := 0; i < 7; i++ {
+	for i := 0; i < n-1; i++ {
 		sum += data[i]
 	}
-	return sum == data[7]
+	return sum == data[n-1]
 }
 
 // probeRole opens a port, drains stale data, sends each probe packet, and
@@ -109,28 +110,28 @@ func probeRole(dev string) string {
 	type probe struct {
 		pkt      []byte
 		role     string
+		length   int // expected ack length: all roles are 8-byte frames
 		prefixes []byte
 	}
 	probes := []probe{
-		{probeAllOff, "alloff", []byte{0xA0}},
-		{probeLights, "lights", []byte{0xB0}},
-		{probeBoilers, "boilers", []byte{0x82, 0x84}},
+		{probeAllOff, "alloff", 8, []byte{0xA0}},
+		{probeLights, "lights", 8, []byte{0xB0}},
+		{probeBoilers, "boilers", 8, []byte{0x82, 0x84}},
 	}
 
-	// readWindow accumulates bytes up to 'want' within 'window' deadline,
-	// scanning for a valid 8-byte response with any of the given prefixes.
-	readWindow := func(window time.Duration, prefixes []byte) []byte {
+	// readWindow accumulates bytes within 'window' deadline, scanning for a valid
+	// n-byte response starting with a known prefix + valid checksum.
+	readWindow := func(window time.Duration, n int, prefixes []byte) []byte {
 		buf := make([]byte, 0, 64)
 		tmp := make([]byte, 64)
 		deadline := time.Now().Add(window)
 		for time.Now().Before(deadline) {
-			n, _ := port.Read(tmp)
-			if n > 0 {
-				buf = append(buf, tmp[:n]...)
-				// scan buffer for any 8-byte window starting with a known prefix + valid checksum
-				for i := 0; i+8 <= len(buf); i++ {
-					if validResponse(buf[i:i+8], prefixes...) {
-						return buf[i : i+8]
+			r, _ := port.Read(tmp)
+			if r > 0 {
+				buf = append(buf, tmp[:r]...)
+				for i := 0; i+n <= len(buf); i++ {
+					if validResponse(buf[i:i+n], n, prefixes...) {
+						return buf[i : i+n]
 					}
 				}
 			}
@@ -148,8 +149,8 @@ func probeRole(dev string) string {
 		}
 
 		port.Write(p.pkt)
-		resp := readWindow(700*time.Millisecond, p.prefixes)
-		if len(resp) == 8 && validResponse(resp, p.prefixes...) {
+		resp := readWindow(700*time.Millisecond, p.length, p.prefixes)
+		if len(resp) == p.length && validResponse(resp, p.length, p.prefixes...) {
 			log.Printf("[DISCOVER] %s probe=%s matched: %x", dev, p.role, resp)
 			return p.role
 		}

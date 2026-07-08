@@ -36,10 +36,14 @@ async def async_setup_entry(
 class HassFusionBoiler(ClimateEntity):
     """Representation of a HassFusion Boiler."""
 
-    _attr_has_entity_name = True
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
-    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+    _attr_supported_features = (
+        ClimateEntityFeature.TARGET_TEMPERATURE
+        | ClimateEntityFeature.TURN_ON
+        | ClimateEntityFeature.TURN_OFF
+    )
+    _enable_turn_on_off_backwards_compatibility = False
     _attr_target_temperature_step = 1
     _attr_icon = "mdi:heating-coil"
 
@@ -49,6 +53,7 @@ class HassFusionBoiler(ClimateEntity):
     def __init__(self, hub: HassFusionHub, device_id: str, name: str) -> None:
         """Initialize."""
         self._hub = hub
+        self._attr_device_info = hub.device_info
         self._device_id = device_id
         self._attr_name = name
         self._attr_unique_id = f"hassfusion_{device_id}"
@@ -104,6 +109,14 @@ class HassFusionBoiler(ClimateEntity):
             mode_str = "heat"
 
         await self._hub.send_command("climate", self._device_id, "set_mode", mode_str)
+
+    async def async_turn_on(self) -> None:
+        """Turn the boiler on."""
+        await self.async_set_hvac_mode(HVACMode.HEAT)
+
+    async def async_turn_off(self) -> None:
+        """Turn the boiler off."""
+        await self.async_set_hvac_mode(HVACMode.OFF)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""

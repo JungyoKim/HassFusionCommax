@@ -64,7 +64,7 @@ HassFusionCommax는 홈어시스턴트(Home Assistant)와 코맥스(Commax) 스�
 | **로비 문열림** | 지정된 층의 공동현관문 개방 명령 전송 (POST) | `Endpoint`: `http://[각_층_로비폰_IP]:29752/`<br>`Payload`: `<n0:setOutOfBandDoorOpen ...><in>15</in></n0:setOutOfBandDoorOpen>` |
 
 ### 6. 엘리베이터 상태 모니터 - `HTTP SOAP 통신`
-하드웨어 라인이 아닌 아파트 단지 관리 서버(CES)의 내부 API를 주기적으로 폴링(Polling)합니다. 부하 조절을 위해 엘리베이터 이동중에는 3초, 정지 중에는 10초 주기로 변경됩니다.
+하드웨어 라인이 아닌 아파트 단지 관리 서버(CES)의 내부 API를 주기적으로 폴링(Polling)합니다. 부하 조절을 위해 엘리베이터 이동중에는 3초, 정지 중에는 5초 주기로 변경됩니다.
 
 | 항목 | 상세 규격 (Details) |
 | :--- | :--- |
